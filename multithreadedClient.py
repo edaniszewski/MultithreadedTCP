@@ -1,58 +1,24 @@
 #!/usr/bin/env python
+"""
+Multi-threaded TCP Client
 
+multithreadedClient.py is a TCP client that maintains a maximum number of worker threads which continuously send a given
+number of requests to multithreadedServer.py and print the server's response.
 
-#################################################################################
-#################################################################################
-#                                                                               #
-#               Multithreaded TCP Client                                        #
-#_______________________________________________________________________________#
-#                                                                               #
-# Author:       Erick Daniszewski                                               #
-# Date:         10 October 2013                                                 #
-# File:         multithreadedClient.py                                          #
-#                                                                               #
-# Summary:                                                                      #
-#               multithreadedClient.py is a TCP client that maintains a maximum #
-#               number of worker threads which continuously send a given number #
-#               of requests to multithreadedServer.pu and print the server's    #
-#		response.                                                       #
-#                                                                               #
-#               This is part of an assignment for the Distributed Systems class #
-#               at Bennington College                                           #
-#                                                                               #
-#								                #
-# Resources:	QUEUE:                             		                #
-#		http://docs.python.org/2/library/queue.html                     #
-#               ARGPARSE                                                        #
-#               http://docs.python.org/2/library/argparse.html                  #
-#                                                                               #
-#################################################################################
-################################################################################# 
+This is derived from an assignment for the Distributed Systems class at Bennington College
+"""
 
+from Queue import Queue
+from argparse import ArgumentParser
+from socket import SO_REUSEADDR, SOCK_STREAM, error, socket, SOL_SOCKET, AF_INET
+from threading import Thread
 
-
-import threading, socket, Queue, argparse
-
-
-
-
-#-------------------------------------------#
-########## DEFINE GLOBAL VARIABLES ##########
-#-------------------------------------------#
-
-requestMessage = "HELO"
-
-# Create a queue to hold the tasks for the worker threads
-q = Queue.Queue(maxsize=0)
-
-
-
-#-------------------------------------#
+# -------------------------------------#
 ########## ARGUMENT HANDLING ##########
 #-------------------------------------#
 
 # Initialize instance of an argument parser
-parser = argparse.ArgumentParser(description='Multithreaded TCP Client')
+parser = ArgumentParser(description='Multi-threaded TCP Client')
 
 # Add optional arguments, with given default values if user gives no args
 parser.add_argument('-r', '--requests', default=10, type=int, help='Total number of requests to send to server')
@@ -63,57 +29,60 @@ parser.add_argument('-p', '--port', default=9000, type=int, help='Port over whic
 # Get the arguments
 args = parser.parse_args()
 
-
-
 #--------------------------------------#
 ########## CLIENT CONSTRUCTOR ##########
 #--------------------------------------#
 
+
 class Client:
-	def __init__(self, id, address, port, message):
-		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.Id = id
-		self.Address = address
-		self.Port = port
-		self.Message = message
+    def __init__(self, id, address, port, message):
+        self.s = socket(AF_INET, SOCK_STREAM)
+        self.id = id
+        self.address = address
+        self.port = port
+        self.message = str(message)
 
-	def run(self):
-		try:
-                        # Timeout if the no connection can be made in 5 seconds
-                        self.s.settimeout(5)
-                        # Allow socket address reuse
-                        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                        # Connect to the ip over the given port
-			self.s.connect((self.Address, self.Port))
-                        # Send the defined request message
-			self.s.send(self.Message)
-                        # Wait to recieve data back from server
-	                data = self.s.recv(1024)
-                        # Notify that data has been received
-        	        print self.Id, ":  received: ", data
-                        # CLOSE THE SOCKET
-                	self.s.close()
-                # If something went wrong, notify the user
-		except socket.error:
-			print "\nERROR: Could not connect to ", self.Address, " over port", self.Port, "\n"
-
-
+    def run(self):
+        try:
+            # Timeout if the no connection can be made in 5 seconds
+            self.s.settimeout(5)
+            # Allow socket address reuse
+            self.s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+            # Connect to the ip over the given port
+            self.s.connect((self.address, self.port))
+            # Send the defined request message
+            self.s.send(self.message)
+            # Wait to receive data back from server
+            data = self.s.recv(1024)
+            # Notify that data has been received
+            print self.id, ":  received: ", data
+            # CLOSE THE SOCKET
+            self.s.close()
+        # If something went wrong, notify the user
+        except error as e:
+            print "\nERROR: Could not connect to ", self.address, " over port", self.port, "\n"
+            raise e
 
 #------------------------------------------------#
 ########## DEFINE QUEUE WORKER FUNCTION ##########
 #------------------------------------------------#
 
+# Create a queue to hold the tasks for the worker threads
+q = Queue(maxsize=0)
+
+
 # Function which generates a Client instance, getting the work item to be processed from the queue
 def worker():
-        while True:
-                # Get the task from teh work queue
-                item = q.get()
-                newClient = Client(item, args.ip, args.port, args.requests)
-                newClient.run()
-		# Mark this task item done, thus removing it from the work queue
-                q.task_done()
+    message = "HELO"
 
+    while True:
+        # Get the task from teh work queue
+        item = q.get()
 
+        new_client = Client(item, args.ip, args.port, message)
+        new_client.run()
+        # Mark this task item done, thus removing it from the work queue
+        q.task_done()
 
 #--------------------------------------------------#
 ########## INITIATE CLIENT WORKER THREADS ##########
@@ -122,16 +91,13 @@ def worker():
 # Populate the work queue with a list of numbers as long as the total number of requests wished to be sent.
 # These queue items can be thought of as decrementing counters for the client thread workers.
 for item in range(args.requests):
-	q.put(item)
+    q.put(item)
 
 # Create a number of threads, given by the maxWorkerThread variable, to initiate clients and begin sending requests.
 for i in range(args.workerThreads):
-	t = threading.Thread(target=worker)
-	t.daemon = True
-	t.start()
+    t = Thread(target=worker)
+    t.daemon = True
+    t.start()
 
-# Do not exit the main thread until the subthreads complete their work queue
+# Do not exit the main thread until the sub-threads complete their work queue
 q.join()
-
-
-print "Complete!"
